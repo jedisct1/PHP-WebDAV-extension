@@ -1,0 +1,6 @@
+ARG_WITH("dav", "for dav support", "no");
+
+if (PHP_DAV != "no") {
+	EXTENSION("dav", "dav.c");
+}
+
