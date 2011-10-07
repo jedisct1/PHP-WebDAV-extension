@@ -38,7 +38,7 @@ PHP_FUNCTION(webdav_move);
 PHP_FUNCTION(webdav_rename);
 
 ZEND_BEGIN_MODULE_GLOBALS(dav)
-	int default_link;
+        int default_link;
 ZEND_END_MODULE_GLOBALS(dav)
 
 #ifdef ZTS
@@ -47,7 +47,7 @@ ZEND_END_MODULE_GLOBALS(dav)
 #define DAV_G(v) (dav_globals.v)
 #endif
 
-#endif	/* PHP_DAV_H */
+#endif  /* PHP_DAV_H */
 
 
 /*

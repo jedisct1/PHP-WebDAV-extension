@@ -20,24 +20,24 @@ class DavStream {
 
     function get_timeout() {
         return self::$timeout;
-    }    
-    
+    }
+
     function set_user_name($user_name) {
         self::$user_name = $user_name;
     }
 
     function get_user_name() {
         return self::$user_name;
-    }    
-    
+    }
+
     function set_user_password($user_password) {
         self::$user_password = $user_password;
     }
 
     function get_user_password() {
         return self::$user_password;
-    }    
-    
+    }
+
     function read_content() {
         if ($this->content !== NULL) {
             return TRUE;
@@ -51,7 +51,7 @@ class DavStream {
 
         return TRUE;
     }
-    
+
     function stream_open($path, $mode, $options, &$opened) {
         $this->path = $path;
         if (strchr($mode, 'r') !== FALSE) {
@@ -76,7 +76,7 @@ class DavStream {
 
         return TRUE;
     }
-    
+
     function stream_close() {
         $ret = webdav_close($this->fd);
         $this->fd = NULL;
@@ -84,10 +84,10 @@ class DavStream {
         $this->content_size = 0;
         $this->offset = 0;
         $this->mode = 0;
-        
+
         return $ret;
-    }        
-    
+    }
+
     function stream_stat() {
         if ($this->read_content() !== TRUE) {
             return FALSE;
@@ -107,7 +107,7 @@ class DavStream {
                      'blocks' => ceil($this->content_size / $this->blksize)
                      );
     }
-    
+
     function stream_read($count) {
         if ($this->offset > $this->content_size) {
             die('$this->offset > $this->content_size' . "\n");
@@ -133,21 +133,21 @@ class DavStream {
 
         return strlen($data);
     }
-    
+
     function stream_eof() {
         if ($this->offset >= $this->content_size) {
             return TRUE;
         }
         return FALSE;
     }
-    
+
     function stream_tell() {
         return $this->offset;
     }
-    
+
     function stream_seek($offset, $whence) {
         $old_offset = $this->offset;
-        
+
         switch ($whence) {
          case SEEK_SET:
             $this->offset = $offset;
@@ -171,11 +171,11 @@ class DavStream {
         }
         return TRUE;
     }
-    
+
     function stream_flush() {
         return TRUE;
     }
-    
+
     function rename($from, $to) {
         if (($fd = webdav_open
              ($path, self::$user_name, self::$user_password)) === FALSE) {
@@ -183,10 +183,10 @@ class DavStream {
         }
         $ret = webdav_mkdir($from, $to, $fd);
         webdav_close($fd);
-        
+
         return $ret;
     }
-    
+
     function mkdir($path, $options) {
         if (($fd = webdav_open
              ($path, self::$user_name, self::$user_password)) === FALSE) {
@@ -194,10 +194,10 @@ class DavStream {
         }
         $ret = webdav_mkdir($path, $fd);
         webdav_close($fd);
-        
+
         return $ret;
     }
-    
+
     function unlink($path) {
         if (($fd = webdav_open
              ($path, self::$user_name, self::$user_password)) === FALSE) {
@@ -205,10 +205,10 @@ class DavStream {
         }
         $ret = webdav_unlink($path, $fd);
         webdav_close($fd);
-        
+
         return $ret;
     }
-    
+
     function url_stat($path, $options) {
         if (($fd = webdav_open
              ($path, self::$user_name, self::$user_password)) === FALSE) {
