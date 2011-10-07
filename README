@@ -194,16 +194,3 @@ unlink('webdav://dav.example.com/dav/dir/abc.txt');
 
 This is a bit slower than native webdav_*() functions.
 
-
-
-
-
-
-
-
-
-
-
-
-
-$Id$
