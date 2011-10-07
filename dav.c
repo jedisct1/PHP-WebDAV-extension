@@ -508,7 +508,6 @@ PHP_FUNCTION(webdav_copy)
     int relative_target_uri_len;
     char *source_uri, *target_uri;
     ne_session *sess;
-    ne_request *req;
     int ret;
     int id = -1;
     zend_bool overwrite = 1;
@@ -551,7 +550,7 @@ PHP_FUNCTION(webdav_copy)
                   source_uri, target_uri);
     efree(source_uri);
     efree(target_uri);
-    if (ret != NE_OK || ne_get_status(req)->klass != 2) {
+    if (ret != NE_OK) {
         php_error_docref(NULL TSRMLS_CC, E_WARNING,
                          "%s", ne_get_error(sess));
         RETURN_FALSE;
@@ -571,7 +570,6 @@ PHP_FUNCTION(webdav_move)
     int relative_target_uri_len;
     char *source_uri, *target_uri;
     ne_session *sess;
-    ne_request *req;
     int ret;
     int id = -1;
     zend_bool overwrite = 1;
@@ -608,7 +606,8 @@ PHP_FUNCTION(webdav_move)
     ret = ne_move(sess, (int) overwrite, source_uri, target_uri);
     efree(source_uri);
     efree(target_uri);
-    if (ret != NE_OK || ne_get_status(req)->klass != 2) {
+
+    if (ret != NE_OK) {
         php_error_docref(NULL TSRMLS_CC, E_WARNING,
                          "%s", ne_get_error(sess));
         RETURN_FALSE;
