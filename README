@@ -194,3 +194,21 @@ unlink('webdav://dav.example.com/dav/dir/abc.txt');
 
 This is a bit slower than native webdav_*() functions.
 
+ ------------------------------ ERRORS HANDLING ------------------------------
+
+Code will throw exceptions on exceptional situations. You can catch it by example:
+
+<?php
+
+try {
+webdav_connect('http://webdav.example.org/dav/');
+$a = webdav_get('/nice/object.txt');
+} catch(\InvalidArgumentException $e) {
+    // wrong input parameters for functions
+} catch (\UnexpectedValueException $e) {
+    // wrong or inactive webdav handler
+} catch (\RuntimeException $e) {
+    // something goes wrong on execution
+}
+
+?>
