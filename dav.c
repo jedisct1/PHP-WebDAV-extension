@@ -87,9 +87,11 @@ ZEND_GET_MODULE(dav)
 
 static void dav_set_default_link(zend_resource *link)
 {
-    GC_REFCOUNT(link)++;
+    if (link != NULL) {
+        GC_REFCOUNT(link)++;
+    }
     if (DAV_G(default_link) != NULL) {
-        zend_list_close(DAV_G(default_link));
+        zend_list_delete(DAV_G(default_link));
     }
     DAV_G(default_link) = link;
 }
@@ -133,12 +135,12 @@ PHP_FUNCTION(webdav_close)
                                                     le_dav_session_name,
                                                     le_dav_session);
     if (link != def_link) {
-        if (zend_list_close(link) != SUCCESS) {
+        if (zend_list_delete(link) != SUCCESS) {
             php_error_docref(NULL, E_WARNING, "Can't delete resource");
             RETURN_FALSE;
         }
     } else {
-        if (zend_list_close(link) != SUCCESS) {
+        if (zend_list_delete(link) != SUCCESS) {
             php_error_docref(NULL, E_WARNING, "Can't delete default resource");
             RETURN_FALSE;
         }
