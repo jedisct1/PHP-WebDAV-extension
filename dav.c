@@ -85,23 +85,25 @@ zend_module_entry dav_module_entry = {
 ZEND_GET_MODULE(dav)
 #endif
 
-static void dav_set_default_link(int id TSRMLS_DC)
+static void dav_set_default_link(zend_resource *link)
 {
-    if (DAV_G(default_link) != -1) {
+    if (link != NULL) {
+        GC_REFCOUNT(link)++;
+    }
+    if (DAV_G(default_link) != NULL) {
         zend_list_delete(DAV_G(default_link));
     }
-    DAV_G(default_link) = id;
-    zend_list_addref(id);
+    DAV_G(default_link) = link;
 }
 
-static int dav_get_default_link(INTERNAL_FUNCTION_PARAMETERS)
+static zend_resource *dav_get_default_link(INTERNAL_FUNCTION_PARAMETERS)
 {
     return DAV_G(default_link);
 }
 
 PHP_RINIT_FUNCTION(dav)
 {
-    DAV_G(default_link) = -1;
+    DAV_G(default_link) = NULL;
 
     return SUCCESS;
 }
@@ -113,38 +115,41 @@ PHP_FUNCTION(webdav_close)
 {
     zval *z_dav;
     DavSession *dav_session;
-    int id = -1;
+    zend_resource *def_link = NULL;
+    zend_resource *link = NULL;
 
-    if (ZEND_NUM_ARGS() TSRMLS_CC < 1) {
-        id = dav_get_default_link(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+    if (ZEND_NUM_ARGS() < 1) {
+        def_link = dav_get_default_link(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+        link = def_link;
     } else {
-        if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|r", &z_dav) == FAILURE) {
+        if (zend_parse_parameters(ZEND_NUM_ARGS(), "|r", &z_dav) == FAILURE) {
             RETURN_FALSE;
         }
+        link = Z_RES_P(z_dav);
     }
-    if (z_dav == NULL && id == -1) {
-        php_error_docref(NULL TSRMLS_CC, E_WARNING, "No link");
+    if (link == NULL) {
+        php_error_docref(NULL, E_WARNING, "No link");
         RETURN_FALSE;
     }
-    ZEND_FETCH_RESOURCE(dav_session, DavSession *, &z_dav, id,
-                        le_dav_session_name, le_dav_session);
-    if (id == -1) {
-        if (zend_list_delete(Z_LVAL_P(z_dav)) != SUCCESS) {
-            php_error_docref(NULL TSRMLS_CC, E_WARNING, "Can't delete resource");
+    dav_session = (DavSession *)zend_fetch_resource(link,
+                                                    le_dav_session_name,
+                                                    le_dav_session);
+    if (link != def_link) {
+        if (zend_list_delete(link) != SUCCESS) {
+            php_error_docref(NULL, E_WARNING, "Can't delete resource");
             RETURN_FALSE;
         }
-    }
-    if (id != -1 || (z_dav && Z_RESVAL_P(z_dav)) == DAV_G(default_link)) {
-        if (zend_list_delete(DAV_G(default_link)) != SUCCESS) {
-            php_error_docref(NULL TSRMLS_CC, E_WARNING, "Can't delete default resource");
+    } else {
+        if (zend_list_delete(link) != SUCCESS) {
+            php_error_docref(NULL, E_WARNING, "Can't delete default resource");
             RETURN_FALSE;
         }
-        dav_set_default_link(-1 TSRMLS_CC);
+        dav_set_default_link(NULL);
     }
     RETURN_TRUE;
 }
 
-static void dav_destructor_dav_session(zend_rsrc_list_entry * rsrc TSRMLS_DC)
+static void dav_destructor_dav_session(zend_resource * rsrc)
 {
     DavSession *dav_session = (DavSession *) rsrc->ptr;
 
@@ -156,6 +161,8 @@ static void dav_destructor_dav_session(zend_rsrc_list_entry * rsrc TSRMLS_DC)
         efree(dav_session->user_password);
         dav_session->sess = NULL;
     }
+
+    efree(dav_session);
 }
 
 /* {{{ PHP_MINIT_FUNCTION
@@ -203,16 +210,16 @@ PHP_FUNCTION(webdav_connect)
     char *arg = NULL;
     int arg_len, len;
     char *base_url = NULL;
-    int base_url_len;
+    size_t base_url_len;
     char *user_name = NULL, *user_password = NULL;
-    int user_name_len, user_password_len;
-    long timeout = 5L;
+    size_t user_name_len, user_password_len;
+    zend_long timeout = 5L;
     DavSession *dav_session;
     ne_session *sess;
     ne_uri uri;
 
     memset(&uri, 0, sizeof uri);
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|ssl",
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|ssl",
                               &base_url, &base_url_len,
                               &user_name, &user_name_len,
                               &user_password, &user_password_len,
@@ -220,21 +227,20 @@ PHP_FUNCTION(webdav_connect)
         RETURN_FALSE;
     }
     if (ne_uri_parse(base_url, &uri) != 0) {
-        php_error_docref(NULL TSRMLS_CC, E_WARNING, "Invalid base URL");
+        php_error_docref(NULL, E_WARNING, "Invalid base URL");
         RETURN_FALSE;
     }
-    if (ZEND_NUM_ARGS() TSRMLS_CC < 4) {
+    if (ZEND_NUM_ARGS() < 4) {
         timeout = 5L;
     }
-    if (ZEND_NUM_ARGS() TSRMLS_CC < 3) {
+    if (ZEND_NUM_ARGS() < 3) {
         user_password = NULL;
     }
-    if (ZEND_NUM_ARGS() TSRMLS_CC < 2) {
+    if (ZEND_NUM_ARGS() < 2) {
         user_name = NULL;
     }
     if (timeout < 0L || timeout > INT_MAX) {
-        php_error_docref(NULL TSRMLS_CC, E_WARNING,
-                         "Invalid timeout");
+        php_error_docref(NULL, E_WARNING, "Invalid timeout");
         RETURN_FALSE;
     }
     if (uri.scheme == NULL) {
@@ -244,12 +250,12 @@ PHP_FUNCTION(webdav_connect)
         uri.port = ne_uri_defaultport(uri.scheme);
     }
     if (ne_sock_init()) {
-        php_error_docref(NULL TSRMLS_CC, E_WARNING,
+        php_error_docref(NULL, E_WARNING,
                          "Unable to initialize socket libraries");
         RETURN_FALSE;
     }
     if ((sess = ne_session_create(uri.scheme, uri.host, uri.port)) == NULL) {
-        php_error_docref(NULL TSRMLS_CC, E_WARNING,
+        php_error_docref(NULL, E_WARNING,
                          "Unable to open a new DAV session");
         RETURN_FALSE;
     }
@@ -268,11 +274,11 @@ PHP_FUNCTION(webdav_connect)
         dav_session->user_password = estrdup(user_password);
     }
     dav_session->sess = sess;
-    ZEND_REGISTER_RESOURCE(return_value, dav_session, le_dav_session);
+    RETVAL_RES(zend_register_resource(dav_session, le_dav_session));
     if (user_name != NULL && user_password != NULL) {
         ne_set_server_auth(sess, cb_dav_auth, dav_session);
     }
-    dav_set_default_link(Z_LVAL_P(return_value) TSRMLS_CC);
+    dav_set_default_link(Z_RES_P(return_value));
 }
 /* }}} */
 
@@ -283,14 +289,19 @@ static int cb_dav_reader(void *userdata, const char *buf, size_t len) {
     if (len <= (size_t) 0U) {
         return 0;
     }
-    old_len = Z_STRLEN_P(return_value);
+
+    zend_string *z_str = Z_STR_P(return_value);
+
+    old_len = z_str->len;
     full_len = old_len + len;
     if (full_len < old_len || full_len < len) {
         return -1;
     }
-    Z_STRVAL_P(return_value) = erealloc(Z_STRVAL_P(return_value), full_len);
-    Z_STRLEN_P(return_value) = full_len;
-    memcpy(Z_STRVAL_P(return_value) + old_len, buf, len);
+
+    z_str = zend_string_extend(z_str, full_len, 0);
+    memcpy(ZSTR_VAL(z_str) + old_len, buf, len);
+    ZSTR_LEN(z_str) = full_len;
+    ZVAL_STR(return_value, z_str);
 
     return 0;
 }
@@ -323,41 +334,44 @@ PHP_FUNCTION(webdav_get)
     zval *z_dav;
     DavSession *dav_session;
     char *relative_uri;
-    int relative_uri_len;
+    size_t relative_uri_len;
     char *uri;
     ne_session *sess;
     ne_request *req;
     int ret;
-    int id = -1;
+    zend_resource *link;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
+    if (zend_parse_parameters(ZEND_NUM_ARGS(),
                               "s|r", &relative_uri, &relative_uri_len,
                               &z_dav) == FAILURE) {
         RETURN_FALSE;
     }
-    if (ZEND_NUM_ARGS() TSRMLS_CC < 2) {
-        id = dav_get_default_link(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+    if (ZEND_NUM_ARGS() < 2) {
+        link = dav_get_default_link(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+    } else {
+        link = Z_RES_P(z_dav);
     }
-    if (z_dav == NULL && id == -1) {
-        php_error_docref(NULL TSRMLS_CC, E_WARNING, "No link");
+    if (link == NULL) {
+        php_error_docref(NULL, E_WARNING, "No link");
         RETURN_FALSE;
     }
-    ZEND_FETCH_RESOURCE(dav_session, DavSession *, &z_dav, id,
-                        le_dav_session_name, le_dav_session);
+    dav_session = (DavSession *)zend_fetch_resource(link,
+                                                    le_dav_session_name,
+                                                    le_dav_session);
     sess = dav_session->sess;
     if ((uri = get_full_uri(dav_session, relative_uri)) == NULL) {
         RETURN_FALSE;
     }
     req = ne_request_create(sess, "GET", uri);
     RETVAL_EMPTY_STRING();
+
     ne_add_response_body_reader(req, ne_accept_2xx,
                                 cb_dav_reader, return_value);
     ret = ne_request_dispatch(req);
     ne_request_destroy(req);
     efree(uri);
     if (ret != NE_OK || ne_get_status(req)->klass != 2) {
-        php_error_docref(NULL TSRMLS_CC, E_WARNING,
-                         "%s", ne_get_error(sess));
+        php_error_docref(NULL, E_WARNING, "%s", ne_get_error(sess));
         RETURN_FALSE;
     }
 }
@@ -369,29 +383,32 @@ PHP_FUNCTION(webdav_put)
     zval *z_dav;
     DavSession *dav_session;
     char *relative_uri;
-    int relative_uri_len;
+    size_t relative_uri_len;
     char *data;
-    int data_len;
+    size_t data_len;
     char *uri;
     ne_session *sess;
     ne_request *req;
     int ret;
-    int id = -1;
+    zend_resource *link;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
+    if (zend_parse_parameters(ZEND_NUM_ARGS(),
                               "ss|r", &relative_uri, &relative_uri_len,
                               &data, &data_len, &z_dav) == FAILURE) {
         RETURN_FALSE;
     }
-    if (ZEND_NUM_ARGS() TSRMLS_CC < 3) {
-        id = dav_get_default_link(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+    if (ZEND_NUM_ARGS() < 3) {
+        link = dav_get_default_link(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+    } else {
+        link = Z_RES_P(z_dav);
     }
-    if (z_dav == NULL && id == -1) {
-        php_error_docref(NULL TSRMLS_CC, E_WARNING, "No link");
+    if (link == NULL) {
+        php_error_docref(NULL, E_WARNING, "No link");
         RETURN_FALSE;
     }
-    ZEND_FETCH_RESOURCE(dav_session, DavSession *, &z_dav, id,
-                        le_dav_session_name, le_dav_session);
+    dav_session = (DavSession *)zend_fetch_resource(link,
+                                                    le_dav_session_name,
+                                                    le_dav_session);
     sess = dav_session->sess;
     if ((uri = get_full_uri(dav_session, relative_uri)) == NULL) {
         RETURN_FALSE;
@@ -402,8 +419,7 @@ PHP_FUNCTION(webdav_put)
     ne_request_destroy(req);
     efree(uri);
     if (ret != NE_OK || ne_get_status(req)->klass != 2) {
-        php_error_docref(NULL TSRMLS_CC, E_WARNING,
-                         "%s", ne_get_error(sess));
+        php_error_docref(NULL, E_WARNING, "%s", ne_get_error(sess));
         RETURN_FALSE;
     }
     RETURN_TRUE;
@@ -416,27 +432,31 @@ PHP_FUNCTION(webdav_delete)
     zval *z_dav;
     DavSession *dav_session;
     char *relative_uri;
-    int relative_uri_len;
+    size_t relative_uri_len;
     char *uri;
     ne_session *sess;
     ne_request *req;
     int ret;
-    int id = -1;
+    zend_resource *link;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
+    if (zend_parse_parameters(ZEND_NUM_ARGS(),
                               "s|r", &relative_uri, &relative_uri_len,
                               &z_dav) == FAILURE) {
         RETURN_FALSE;
     }
-    if (ZEND_NUM_ARGS() TSRMLS_CC < 2) {
-        id = dav_get_default_link(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+    if (ZEND_NUM_ARGS() < 2) {
+        link = dav_get_default_link(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+    } else {
+        link = Z_RES_P(z_dav);
     }
-    if (z_dav == NULL && id == -1) {
-        php_error_docref(NULL TSRMLS_CC, E_WARNING, "No link");
+    if (link == NULL) {
+        php_error_docref(NULL, E_WARNING, "No link");
         RETURN_FALSE;
     }
-    ZEND_FETCH_RESOURCE(dav_session, DavSession *, &z_dav, id,
-                        le_dav_session_name, le_dav_session);
+
+    dav_session = (DavSession *)zend_fetch_resource(link,
+                                                    le_dav_session_name,
+                                                    le_dav_session);
     sess = dav_session->sess;
     if ((uri = get_full_uri(dav_session, relative_uri)) == NULL) {
         RETURN_FALSE;
@@ -445,8 +465,7 @@ PHP_FUNCTION(webdav_delete)
     ret = ne_simple_request(sess, req);
     efree(uri);
     if (ret != NE_OK || ne_get_status(req)->klass != 2) {
-        php_error_docref(NULL TSRMLS_CC, E_WARNING,
-                         "%s", ne_get_error(sess));
+        php_error_docref(NULL, E_WARNING, "%s", ne_get_error(sess));
         RETURN_FALSE;
     }
     RETURN_TRUE;
@@ -459,27 +478,31 @@ PHP_FUNCTION(webdav_mkcol)
     zval *z_dav;
     DavSession *dav_session;
     char *relative_uri;
-    int relative_uri_len;
+    size_t relative_uri_len;
     char *uri;
     ne_session *sess;
     ne_request *req;
     int ret;
-    int id = -1;
+    zend_resource *link;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
+    if (zend_parse_parameters(ZEND_NUM_ARGS(),
                               "s|r", &relative_uri, &relative_uri_len,
                               &z_dav) == FAILURE) {
         RETURN_FALSE;
     }
-    if (ZEND_NUM_ARGS() TSRMLS_CC < 2) {
-        id = dav_get_default_link(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+    if (ZEND_NUM_ARGS() < 2) {
+        link = dav_get_default_link(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+    } else {
+        link = Z_RES_P(z_dav);
     }
-    if (z_dav == NULL && id == -1) {
-        php_error_docref(NULL TSRMLS_CC, E_WARNING, "No link");
+    if (link == NULL) {
+        php_error_docref(NULL, E_WARNING, "No link");
         RETURN_FALSE;
     }
-    ZEND_FETCH_RESOURCE(dav_session, DavSession *, &z_dav, id,
-                        le_dav_session_name, le_dav_session);
+
+    dav_session = (DavSession *)zend_fetch_resource(link,
+                                                    le_dav_session_name,
+                                                    le_dav_session);
     sess = dav_session->sess;
     if ((uri = get_full_uri(dav_session, relative_uri)) == NULL) {
         RETURN_FALSE;
@@ -488,8 +511,7 @@ PHP_FUNCTION(webdav_mkcol)
     ret = ne_simple_request(sess, req);
     efree(uri);
     if (ret != NE_OK || ne_get_status(req)->klass != 2) {
-        php_error_docref(NULL TSRMLS_CC, E_WARNING,
-                         "%s", ne_get_error(sess));
+        php_error_docref(NULL, E_WARNING, "%s", ne_get_error(sess));
         RETURN_FALSE;
     }
     RETURN_TRUE;
@@ -502,38 +524,42 @@ PHP_FUNCTION(webdav_copy)
     zval *z_dav;
     DavSession *dav_session;
     char *relative_source_uri;
-    int relative_source_uri_len;
+    size_t relative_source_uri_len;
     char *relative_target_uri;
-    int relative_target_uri_len;
+    size_t relative_target_uri_len;
     char *source_uri, *target_uri;
     ne_session *sess;
     int ret;
-    int id = -1;
+    zend_resource *link;
     zend_bool overwrite = 1;
     zend_bool depth = 1;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
+    if (zend_parse_parameters(ZEND_NUM_ARGS(),
                               "ss|bbr",
                               &relative_source_uri, &relative_source_uri_len,
                               &relative_target_uri, &relative_target_uri_len,
                               &overwrite, &depth, &z_dav) == FAILURE) {
         RETURN_FALSE;
     }
-    if (ZEND_NUM_ARGS() TSRMLS_CC < 5) {
-        id = dav_get_default_link(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+    if (ZEND_NUM_ARGS() < 5) {
+        link = dav_get_default_link(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+    } else {
+        link = Z_RES_P(z_dav);
     }
-    if (ZEND_NUM_ARGS() TSRMLS_CC < 4) {
+    if (ZEND_NUM_ARGS() < 4) {
         depth = 1;
     }
-    if (ZEND_NUM_ARGS() TSRMLS_CC < 3) {
+    if (ZEND_NUM_ARGS() < 3) {
         overwrite = 1;
     }
-    if (z_dav == NULL && id == -1) {
-        php_error_docref(NULL TSRMLS_CC, E_WARNING, "No link");
+    if (link == NULL) {
+        php_error_docref(NULL, E_WARNING, "No link");
         RETURN_FALSE;
     }
-    ZEND_FETCH_RESOURCE(dav_session, DavSession *, &z_dav, id,
-                        le_dav_session_name, le_dav_session);
+
+    dav_session = (DavSession *)zend_fetch_resource(link,
+                                                    le_dav_session_name,
+                                                    le_dav_session);
     sess = dav_session->sess;
     if ((source_uri = get_full_uri(dav_session,
                                    relative_source_uri)) == NULL) {
@@ -550,8 +576,7 @@ PHP_FUNCTION(webdav_copy)
     efree(source_uri);
     efree(target_uri);
     if (ret != NE_OK) {
-        php_error_docref(NULL TSRMLS_CC, E_WARNING,
-                         "%s", ne_get_error(sess));
+        php_error_docref(NULL, E_WARNING, "%s", ne_get_error(sess));
         RETURN_FALSE;
     }
     RETURN_TRUE;
@@ -564,34 +589,37 @@ PHP_FUNCTION(webdav_move)
     zval *z_dav;
     DavSession *dav_session;
     char *relative_source_uri;
-    int relative_source_uri_len;
+    size_t relative_source_uri_len;
     char *relative_target_uri;
-    int relative_target_uri_len;
+    size_t relative_target_uri_len;
     char *source_uri, *target_uri;
     ne_session *sess;
     int ret;
-    int id = -1;
+    zend_resource *link;
     zend_bool overwrite = 1;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
+    if (zend_parse_parameters(ZEND_NUM_ARGS(),
                               "ss|br",
                               &relative_source_uri, &relative_source_uri_len,
                               &relative_target_uri, &relative_target_uri_len,
                               &overwrite, &z_dav) == FAILURE) {
         RETURN_FALSE;
     }
-    if (ZEND_NUM_ARGS() TSRMLS_CC < 4) {
-        id = dav_get_default_link(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+    if (ZEND_NUM_ARGS() < 4) {
+        link = dav_get_default_link(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+    } else {
+        link = Z_RES_P(z_dav);
     }
-    if (ZEND_NUM_ARGS() TSRMLS_CC < 3) {
+    if (ZEND_NUM_ARGS() < 3) {
         overwrite = 1;
     }
-    if (z_dav == NULL && id == -1) {
-        php_error_docref(NULL TSRMLS_CC, E_WARNING, "No link");
+    if (link == NULL) {
+        php_error_docref(NULL, E_WARNING, "No link");
         RETURN_FALSE;
     }
-    ZEND_FETCH_RESOURCE(dav_session, DavSession *, &z_dav, id,
-                        le_dav_session_name, le_dav_session);
+    dav_session = (DavSession *)zend_fetch_resource(link,
+                                                    le_dav_session_name,
+                                                    le_dav_session);
     sess = dav_session->sess;
     if ((source_uri = get_full_uri(dav_session,
                                    relative_source_uri)) == NULL) {
@@ -607,8 +635,7 @@ PHP_FUNCTION(webdav_move)
     efree(target_uri);
 
     if (ret != NE_OK) {
-        php_error_docref(NULL TSRMLS_CC, E_WARNING,
-                         "%s", ne_get_error(sess));
+        php_error_docref(NULL, E_WARNING, "%s", ne_get_error(sess));
         RETURN_FALSE;
     }
     RETURN_TRUE;
