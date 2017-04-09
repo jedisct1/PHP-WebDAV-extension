@@ -87,6 +87,7 @@ ZEND_GET_MODULE(dav)
 
 static void dav_set_default_link(zend_resource *link)
 {
+    GC_REFCOUNT(link)++;
     if (DAV_G(default_link) != NULL) {
         zend_list_close(DAV_G(default_link));
     }
